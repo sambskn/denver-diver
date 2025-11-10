@@ -19,15 +19,17 @@ struct Road {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Window {
-                title: "denver-diver".to_string(),
-                fit_canvas_to_parent: true,
+        .add_plugins(
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Window {
+                    title: "denver-diver".to_string(),
+                    fit_canvas_to_parent: true,
+                    ..default()
+                }
+                .into(),
                 ..default()
-            }
-            .into(),
-            ..default()
-        }),)
+            }),
+        )
         .add_plugins(HttpClientPlugin)
         .insert_resource(ClearColor(Color::srgb(0.82, 0.73, 0.86)))
         .add_systems(Startup, (spawn_player_camera, request_tiles))

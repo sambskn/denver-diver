@@ -1,2 +1,13 @@
 diver_viz/target
 diver_viz/dist
+
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml
