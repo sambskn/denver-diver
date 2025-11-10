@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_http_client::prelude::*;
 use geozero::GeomProcessor;
 use geozero::mvt::tile::Layer;
 use geozero::mvt::{Message, Tile};
@@ -18,10 +19,19 @@ struct Road {
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Window {
+                title: "denver-diver".to_string(),
+                fit_canvas_to_parent: true,
+                ..default()
+            }
+            .into(),
+            ..default()
+        }),)
+        .add_plugins(HttpClientPlugin)
         .insert_resource(ClearColor(Color::srgb(0.82, 0.73, 0.86)))
-        .add_systems(Startup, (spawn_player_camera, request_and_spawn_tiles))
-        .add_systems(Update, camera_update)
+        .add_systems(Startup, (spawn_player_camera, request_tiles))
+        .add_systems(Update, (camera_update, on_tile_response, on_tile_error))
         .run();
 }
 
@@ -73,23 +83,34 @@ fn camera_update(
     }
 }
 
-fn request_and_spawn_tiles(
+const TILE_COORD_Z: u32 = 15;
+const TILE_COORD_X: u32 = 6827;
+const TILE_COORD_Y: u32 = 12436;
+
+fn request_tiles(mut ev_request: MessageWriter<HttpRequest>) {
+    let url = format!(
+        "{}/{}/{}/{}",
+        MARTIN_MVT_ENDPOINT, TILE_COORD_Z, TILE_COORD_X, TILE_COORD_Y
+    );
+    match HttpClient::new().get(url).try_build() {
+        Ok(request) => {
+            ev_request.write(request);
+        }
+        Err(e) => {
+            eprintln!("Failed to build request: {}", e);
+        }
+    }
+}
+
+fn on_tile_response(
+    mut ev_resp: MessageReader<HttpResponse>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    info!("Requesting initial tiles...");
-    // Hardcoded to pull the Denver area that's saved
-    let z = 15;
-    let x = 6827;
-    let y = 12436;
-
-    let url = format!("{}/{}/{}/{}", MARTIN_MVT_ENDPOINT, z, x, y);
-
-    info!("Fetching tile from: {}", url);
-
-    if let Ok(data) = fetch_tile(&url) {
-        let tile = Tile::decode(data.as_slice()).unwrap();
+    for response in ev_resp.read() {
+        let bytes = response.bytes.as_slice();
+        let tile = Tile::decode(bytes).unwrap();
 
         let mut buildings = Vec::new();
         let mut roads = Vec::new();
@@ -99,7 +120,7 @@ fn request_and_spawn_tiles(
             if layer.name == "buildings" {
                 info!("Processing buildings layer...");
                 for feature in &layer.features {
-                    let mut processor = BuildingProcessor::new(x, y);
+                    let mut processor = BuildingProcessor::new(TILE_COORD_X, TILE_COORD_Y);
                     let height: Option<f64> =
                         extract_tag_value_as_f64(&feature.tags, layer, "height".to_string());
                     if geozero::mvt::process_geom(feature, &mut processor).is_ok() {
@@ -113,7 +134,7 @@ fn request_and_spawn_tiles(
             } else if layer.name == "roads" {
                 info!("Processing roads layer...");
                 for feature in &layer.features {
-                    let mut processor = RoadProcessor::new(x, y);
+                    let mut processor = RoadProcessor::new(TILE_COORD_X, TILE_COORD_Y);
                     if geozero::mvt::process_geom(feature, &mut processor).is_ok() {
                         roads.extend(processor.roads);
                     }
@@ -131,8 +152,8 @@ fn request_and_spawn_tiles(
                     *point = BuildingProcessor::tile_to_world_static(
                         point.x as f64,
                         point.y as f64,
-                        x,
-                        y,
+                        TILE_COORD_X,
+                        TILE_COORD_Y,
                         1000.0,
                     );
                 }
@@ -142,7 +163,12 @@ fn request_and_spawn_tiles(
         // Convert road points to world coordinates
         for road in &mut roads {
             for point in road.points.iter_mut() {
-                *point = RoadProcessor::tile_to_world_static(point.x as f64, point.y as f64, x, y);
+                *point = RoadProcessor::tile_to_world_static(
+                    point.x as f64,
+                    point.y as f64,
+                    TILE_COORD_X,
+                    TILE_COORD_Y,
+                );
             }
         }
 
@@ -230,8 +256,12 @@ fn request_and_spawn_tiles(
             },
             Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.5, 0.5, 0.0)),
         ));
-    } else {
-        error!("✗ Failed to fetch tile");
+    }
+}
+
+fn on_tile_error(mut ev_error: MessageReader<HttpResponseError>) {
+    for error in ev_error.read() {
+        println!("Error retrieving IP: {}", error.err);
     }
 }
 
@@ -383,12 +413,4 @@ impl GeomProcessor for RoadProcessor {
         }
         Ok(())
     }
-}
-
-// --- Fetch tile ---
-fn fetch_tile(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let response = reqwest::blocking::get(url)?;
-    info!("Response status: {}", response.status());
-    let bytes = response.bytes()?;
-    Ok(bytes.to_vec())
 }

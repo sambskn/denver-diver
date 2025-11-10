@@ -6,6 +6,6 @@ edition = "2024"
 [dependencies]
 bevy = "0.17.2"
 geozero = { version = "0.14.0", features = ["with-mvt"] }
-reqwest = { version = "0.12.24", features = ["blocking", "json"] }
 csgrs = { git = "https://github.com/Hattiffnat/csgrs.git", branch="update_bevy_version", features=["bevymesh"] }
 serde = { version = "1.0.228", features = ["derive"] }
+bevy_http_client = "0.9.0"
