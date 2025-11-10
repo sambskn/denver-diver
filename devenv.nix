@@ -25,17 +25,12 @@
   packages = [
     ## general stuff to have for dev work
     pkgs.git # i love commiting
-    pkgs.marksman # language server for markdown
-    pkgs.eza # modern ls
     pkgs.trunk # for doing wasm builds/local serving
-    pkgs.taplo # toml formatter / linter
     pkgs.lldb 
     pkgs.libclang 
     pkgs.gcc 
     pkgs.glibc.dev 
     pkgs.stdenv.cc.cc.lib
-    pkgs.pqrs # cli for auditing .parquet files
-    pkgs.biome # to get some js/html linting/formatting
     # stuff copied from bevy nix stuff
     # Audio (Linux only)
     pkgs.alsa-lib
