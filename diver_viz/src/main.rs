@@ -1,10 +1,19 @@
-use bevy::prelude::*;
+use bevy::{
+    camera::Exposure,
+    core_pipeline::tonemapping::Tonemapping,
+    input::gamepad,
+    light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder, light_consts::lux},
+    pbr::{Atmosphere, AtmosphereSettings},
+    post_process::bloom::Bloom,
+    prelude::*,
+};
 use bevy_http_client::prelude::*;
+use csgrs::traits::CSG;
 use geozero::GeomProcessor;
 use geozero::mvt::tile::Layer;
 use geozero::mvt::{Message, Tile};
 
-const MARTIN_MVT_ENDPOINT: &str = "http://localhost:3000/denver_block_just_roads_buildings";
+const MARTIN_MVT_ENDPOINT: &str = "http://localhost:3000/denver_blocks_all_zoom_15_up";
 
 #[derive(Debug, Clone)]
 struct Building {
@@ -33,21 +42,56 @@ fn main() {
         .add_plugins(HttpClientPlugin)
         .insert_resource(ClearColor(Color::srgb(0.82, 0.73, 0.86)))
         .add_systems(Startup, (spawn_player_camera, request_tiles))
-        .add_systems(Update, (camera_update, on_tile_response, on_tile_error))
+        .add_systems(
+            Update,
+            (
+                camera_update,
+                on_tile_response,
+                on_tile_error,
+                dynamic_scene,
+            ),
+        )
         .run();
+}
+
+fn dynamic_scene(
+    mut suns: Query<&mut Transform, With<DirectionalLight>>,
+    gamepads: Query<&Gamepad>,
+    time: Res<Time>,
+) {
+    for mut tf in suns {
+        for gamepad in gamepads {
+            if gamepad.pressed(GamepadButton::RightTrigger) {
+                tf.rotate_x(-time.delta_secs() * std::f32::consts::PI / 10.0);
+            }
+            if gamepad.pressed(GamepadButton::LeftTrigger) {
+                tf.rotate_x(time.delta_secs() * std::f32::consts::PI / 10.0);
+            }
+        }
+    }
 }
 
 fn spawn_player_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d { ..default() },
-        Transform::from_xyz(0.0, 0.0, 1.0).looking_at(
+        Transform::from_xyz(0.0, 1.0, 0.0).looking_at(
             Vec3 {
                 x: 1.0,
-                y: 0.0,
-                z: 1.0,
+                y: 1.0,
+                z: 0.0,
             },
-            Vec3::Z,
+            Vec3::Y,
         ),
+        Atmosphere::EARTH,
+        AtmosphereSettings {
+            aerial_view_lut_max_distance: 3.2e5,
+            scene_units_to_m: 1e+4,
+            ..Default::default()
+        },
+        Exposure::SUNLIGHT,
+        Tonemapping::AcesFitted,
+        Bloom::NATURAL,
+        AtmosphereEnvironmentMapLight::default(),
     ));
 }
 
@@ -78,7 +122,7 @@ fn camera_update(
             right_stick.x *= CAM_SENSITIVITY_X;
             right_stick.y *= CAM_SENSITIVITY_Y;
             if right_stick.length() > 0.1 {
-                cam.rotate_z(-1.0 * right_stick.x * timer.delta_secs());
+                cam.rotate_y(-1.0 * right_stick.x * timer.delta_secs());
                 cam.rotate_local_x(right_stick.y * timer.delta_secs());
             }
         }
@@ -115,6 +159,7 @@ fn on_tile_response(
         let tile = Tile::decode(bytes).unwrap();
 
         let mut buildings = Vec::new();
+        let mut landuse = Vec::new();
         let mut roads = Vec::new();
 
         for layer in &tile.layers {
@@ -141,15 +186,45 @@ fn on_tile_response(
                         roads.extend(processor.roads);
                     }
                 }
+            } else if layer.name == "landuse" {
+                // NOTE: This just uses the same processing as buildings for now.
+                // Should read the tags and do some different stuff here for diff types
+                info!("Processing landuse layer...");
+                for feature in &layer.features {
+                    let mut processor = BuildingProcessor::new(TILE_COORD_X, TILE_COORD_Y);
+                    if geozero::mvt::process_geom(feature, &mut processor).is_ok() {
+                        if let Some(mut building) = processor.building {
+                            // add hardcoded height for now
+                            building.height = Some(0.1);
+                            landuse.push(building);
+                        }
+                    }
+                }
             }
         }
 
         info!("✓ Parsed {} building polygons", buildings.len());
+        info!("✓ Parsed {} landuse polygons", landuse.len());
         info!("✓ Parsed {} roads", roads.len());
 
         // Convert all building points to world coordinates
         for building in &mut buildings {
             for ring in &mut building.geometry {
+                for point in ring.iter_mut() {
+                    *point = BuildingProcessor::tile_to_world_static(
+                        point.x as f64,
+                        point.y as f64,
+                        TILE_COORD_X,
+                        TILE_COORD_Y,
+                        1000.0,
+                    );
+                }
+            }
+        }
+
+        // Convert all landuse points to world coordinates
+        for landuse_poly in &mut landuse {
+            for ring in &mut landuse_poly.geometry {
                 for point in ring.iter_mut() {
                     *point = BuildingProcessor::tile_to_world_static(
                         point.x as f64,
@@ -204,6 +279,13 @@ fn on_tile_response(
                 }
             }
         }
+        for landuse_poly in &mut landuse {
+            for ring in &mut landuse_poly.geometry {
+                for point in ring.iter_mut() {
+                    *point -= center;
+                }
+            }
+        }
         for road in &mut roads {
             for point in &mut road.points {
                 *point -= center;
@@ -212,11 +294,22 @@ fn on_tile_response(
 
         let building_material = materials.add(StandardMaterial {
             base_color: Color::srgb(0.8, 0.64, 0.55),
+            metallic: 0.0,
+            perceptual_roughness: 0.9,
+            ..default()
+        });
+
+        let landuse_material = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.4, 0.54, 0.75),
+            metallic: 0.0,
+            perceptual_roughness: 1.0,
             ..default()
         });
 
         let road_material = materials.add(StandardMaterial {
-            base_color: Color::srgba(0.66, 0.88, 0.82, 0.95),
+            base_color: Color::srgb(0.98, 0.37, 0.43),
+            metallic: 1.0,
+            perceptual_roughness: 0.0,
             ..default()
         });
 
@@ -231,6 +324,17 @@ fn on_tile_response(
             }
         }
 
+        // Spawn landuse meshes
+        for landuse_poly in &landuse {
+            if let Some(mesh) = create_building_mesh(landuse_poly) {
+                commands.spawn((
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(landuse_material.clone()),
+                    Transform::from_xyz(0.0, -0.125, 0.0),
+                ));
+            }
+        }
+
         // Spawn road meshes
         for road in &roads {
             if road.points.len() < 2 {
@@ -240,7 +344,7 @@ fn on_tile_response(
             let road_vertices: Vec<Vec3> = road
                 .points
                 .iter()
-                .map(|point| Vec3::new(point.x, point.y, 0.0))
+                .map(|point| Vec3::new(point.x, 0.0, point.y))
                 .collect();
 
             commands.spawn((
@@ -250,13 +354,28 @@ fn on_tile_response(
             ));
         }
 
+        // Configure a properly scaled cascade shadow map for this scene (defaults are too large, mesh units are in km)
+        let cascade_shadow_config = CascadeShadowConfigBuilder {
+            first_cascade_far_bound: 0.3,
+            maximum_distance: 3.0,
+            ..default()
+        }
+        .build();
+
         // Light
         commands.spawn((
             DirectionalLight {
-                illuminance: 10000.0,
+                shadows_enabled: true,
+                // lux::RAW_SUNLIGHT is recommended for use with this feature, since
+                // other values approximate sunlight *post-scattering* in various
+                // conditions. RAW_SUNLIGHT in comparison is the illuminance of the
+                // sun unfiltered by the atmosphere, so it is the proper input for
+                // sunlight to be filtered by the atmosphere.
+                illuminance: lux::RAW_SUNLIGHT,
                 ..default()
             },
-            Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.5, 0.5, 0.0)),
+            Transform::from_xyz(1.0, -0.4, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+            cascade_shadow_config,
         ));
     }
 }
@@ -311,8 +430,8 @@ fn create_building_mesh(building: &Building) -> Option<Mesh> {
     let sketch: csgrs::sketch::Sketch<()> = csgrs::sketch::Sketch::polygon(&points, None);
     let height = building.height.unwrap_or(10.0);
     let extruded = sketch.extrude(height);
-
-    Some(extruded.to_bevy_mesh())
+    let rotated = extruded.rotate(-90.0, 0.0, 0.0);
+    Some(rotated.to_bevy_mesh())
 }
 
 // --- Building processor ---
