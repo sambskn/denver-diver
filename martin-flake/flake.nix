@@ -19,26 +19,13 @@
           src = pkgs.fetchFromGitHub {
             owner = "maplibre";
             repo = "martin";
-            tag = "v${version}";
-            hash = "sha256-7VCAHhAAe2FgesecongratsyougettorunNixtwice=";
+            tag = "martin-v${version}";
+            hash = "sha256-Jd80ehOCBN62G4YjZOyTFYZ+ePOpPGpCE6S46arLbEc=";
           };
 
-          useFetchCargoVendor = true;
-          cargoHash = "sha256-fillmein12345678901234567890123456789012=";
+          cargoHash = "sha256-jKB6BObE3bu/VZemzV1BInw89r7kbrwSY/oJIjBzmxw=";
 
-          buildFeatures = [
-            "fonts"
-            "lambda"
-            "mbtiles"
-            "metrics"
-            "pmtiles"
-            "postgres"
-            "sprites"
-            "styles"
-            # webui excluded
-          ];
-
-          nativeBuildInputs = [ pkgs.pkg-config ];
+          nativeBuildInputs = [ pkgs.pkg-config  pkgs.nodejs ];
           buildInputs = [ pkgs.openssl ];
 
           # Skip tests to speed up build
