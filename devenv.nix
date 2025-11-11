@@ -1,4 +1,5 @@
 { pkgs, lib, config, inputs, ... }:
+
 {
   # https://devenv.sh/basics/
   env.LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
@@ -46,6 +47,8 @@
     pkgs.xorg.libXrandr
     pkgs.libxkbcommon
     pkgs.wayland
+    # use flake in /martin-flake to build altest martin
+    inputs.martin.packages.${pkgs.system}.default
   ];
   # get the real gamer command prompt
   starship.enable = true;
@@ -63,7 +66,9 @@
     };
     martin = {
       # run martin with default settings pointed at test Denver pmtiles data
-      exec = "martin data/denver_blocks_all_zoom_15_up.pmtiles";
+      exec = ''
+        martin data/denver_blocks_all_zoom_15_up.pmtiles
+      '';
     };
   };
 }
