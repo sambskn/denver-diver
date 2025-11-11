@@ -1,7 +1,6 @@
 use bevy::{
     camera::Exposure,
     core_pipeline::tonemapping::Tonemapping,
-    input::gamepad,
     light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder, light_consts::lux},
     pbr::{Atmosphere, AtmosphereSettings},
     post_process::bloom::Bloom,
@@ -55,7 +54,7 @@ fn main() {
 }
 
 fn dynamic_scene(
-    mut suns: Query<&mut Transform, With<DirectionalLight>>,
+    suns: Query<&mut Transform, With<DirectionalLight>>,
     gamepads: Query<&Gamepad>,
     time: Res<Time>,
 ) {

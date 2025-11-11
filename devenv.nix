@@ -63,7 +63,7 @@
     };
     martin = {
       # run martin with default settings pointed at test Denver pmtiles data
-      exec = "martin data/denver_block_just_roads_buildings.pmtiles";
+      exec = "martin data/denver_blocks_all_zoom_15_up.pmtiles";
     };
   };
 }
