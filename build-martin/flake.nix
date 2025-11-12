@@ -24,8 +24,11 @@
           };
 
           cargoHash = "sha256-jKB6BObE3bu/VZemzV1BInw89r7kbrwSY/oJIjBzmxw=";
-
-          nativeBuildInputs = [ pkgs.pkg-config  pkgs.nodejs ];
+          buildNoDefaultFeatures = true;
+          buildFeatures = [
+            "pmtiles"
+          ];
+          nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ pkgs.openssl ];
 
           # Skip tests to speed up build

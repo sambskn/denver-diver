@@ -13,5 +13,5 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
-  martin:
-    url: file:./martin-flake/flake.nix
+  mart-update:
+    url: path:./build-martin

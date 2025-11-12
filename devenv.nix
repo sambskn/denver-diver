@@ -48,7 +48,7 @@
     pkgs.libxkbcommon
     pkgs.wayland
     # use flake in /martin-flake to build altest martin
-    inputs.martin.packages.${pkgs.system}.default
+    inputs.mart-update.packages.${pkgs.system}.default
   ];
   # get the real gamer command prompt
   starship.enable = true;

@@ -31,6 +31,23 @@
         "type": "github"
       }
     },
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
     "git-hooks": {
       "inputs": {
         "flake-compat": "flake-compat",
@@ -72,20 +89,20 @@
         "type": "github"
       }
     },
-    "martin-update": {
+    "mart-update": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "nixpkgs": "nixpkgs"
+      },
       "locked": {
-        "lastModified": 1759507249,
-        "owner": "sikmir",
-        "repo": "nixpkgs",
-        "rev": "877b69bde7b746fc336969d8dd9a4459f82f9c42",
-        "type": "github"
+        "path": "build-martin",
+        "type": "path"
       },
       "original": {
-        "owner": "sikmir",
-        "ref": "martin",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
+        "path": "build-martin",
+        "type": "path"
+      },
+      "parent": []
     },
     "mk-shell-bin": {
       "locked": {
@@ -122,6 +139,21 @@
     },
     "nixpkgs": {
       "locked": {
+        "lastModified": 1762596750,
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b6a8526db03f735b89dd5ff348f53f752e7ddc8e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
         "lastModified": 1761313199,
         "owner": "cachix",
         "repo": "devenv-nixpkgs",
@@ -139,10 +171,10 @@
       "inputs": {
         "devenv": "devenv",
         "git-hooks": "git-hooks",
-        "martin-update": "martin-update",
+        "mart-update": "mart-update",
         "mk-shell-bin": "mk-shell-bin",
         "nix2container": "nix2container",
-        "nixpkgs": "nixpkgs",
+        "nixpkgs": "nixpkgs_2",
         "pre-commit-hooks": [
           "git-hooks"
         ],
@@ -165,6 +197,20 @@
       "original": {
         "owner": "oxalica",
         "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
         "type": "github"
       }
     }
