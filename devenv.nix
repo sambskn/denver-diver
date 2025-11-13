@@ -50,6 +50,9 @@
     pkgs.xorg.libXrandr
     pkgs.libxkbcommon
     pkgs.wayland
+    # for serving compiled wasm
+    pkgs.http-server
+
     # use flake in /martin-flake to build altest martin
     inputs.mart-update.packages.${pkgs.system}.default
   ];
@@ -60,27 +63,24 @@
   languages.rust.enable = true;
   languages.rust.channel = "nightly";
   languages.rust.targets = ["wasm32-unknown-unknown"];
-  
-  # build trunk once before starting
-  process.manager.before = "
-    echo 'Starting initial trunk build...'
-    cd diver_viz && trunk build
-    echo 'Starting processes...'
-    cd ..
-  ";
 
   processes = {
     client-web = {
-      cwd = "./diver_viz";
-      # use trunk to build and serve the wasm version of the client
-      # runs on port 1111 (see `diver_viz/Trunk.toml`)
-      exec = "trunk serve";
+      cwd = "./diver_viz/dist";
+      # serve static content for client
+      exec = "http-server -p ${config.env.VIZ_PORT}";
     };
+    # client-dev = {
+    #   cwd = "./diver_viz";
+    #   # use trunk to build and serve the wasm version of the client
+    #   # runs on port 1111 (see `diver_viz/Trunk.toml`)
+    #   exec = "trunk serve";
+    # };
     martin = {
       # run martin with default settings pointed at test Denver pmtiles data
       # runs on port 2222 (see `martin-config.yaml`)
       exec = ''
-        martin --config martin-config.yaml
+        martin --config martin/config.yaml
       '';
     };
   };
@@ -126,7 +126,21 @@
   containers.processes = {
     name = "devenv-denver-diver";
     registry = "docker://us-west2-docker.pkg.dev/wasm-games-435303/diver/";
+    copyToRoot = [
+      ./diver_viz/build     # final built static html for client
+      ./data                # static pmtiles data for martin to serve
+      ./martin              # config for martin
+    ];
   };
+
+  scripts.build_and_deploy.exec = ''
+    # build wasm app
+    cd diver_viz
+    trunk build --dist build
+    cd ..
+    # compile container and send to registry
+    devenv container --profile prod copy processes
+  '';
 
   profiles.prod.module = { config, ... }: {
     process.managers.process-compose = {
