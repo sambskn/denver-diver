@@ -53,7 +53,7 @@
     # for serving compiled wasm
     pkgs.http-server
 
-    # use flake in /martin-flake to build altest martin
+    # use flake in /martin-flake to build latest martin
     inputs.mart-update.packages.${pkgs.system}.default
   ];
   # get the real gamer command prompt
