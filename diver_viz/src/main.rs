@@ -12,7 +12,7 @@ use geozero::GeomProcessor;
 use geozero::mvt::tile::Layer;
 use geozero::mvt::{Message, Tile};
 
-const MARTIN_MVT_ENDPOINT: &str = "http://localhost:3000/denver_blocks_all_zoom_15_up";
+const MARTIN_MVT_ENDPOINT: &str = "/tiles/denver_blocks_all_zoom_15_up";
 
 #[derive(Debug, Clone)]
 struct Building {

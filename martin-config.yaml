@@ -1,0 +1,8 @@
+listen_addresses: '0.0.0.0:2222'
+
+# nginx reverse proxy will handle seriving content from /tiles, this sets the headers on martin to match
+base_url: /tiles
+
+pmtiles:
+  sources:
+    denver_blocks_all_zoom_15_up: data/denver_blocks_all_zoom_15_up.pmtiles
