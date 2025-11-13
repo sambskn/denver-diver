@@ -68,7 +68,7 @@
     client-web = {
       cwd = "./diver_viz/build";
       # serve static content for client
-      exec = "http-server -p ${config.env.VIZ_PORT}";
+      exec = "http-server -p ${config.env.VIZ_PORT} -b";
     };
     # client-dev = {
     #   cwd = "./diver_viz";
@@ -125,22 +125,21 @@
 
   containers.processes = {
     name = "devenv-denver-diver";
-    version= "0.1.0";
+    version= "0.1.5"; # bump on changes plz
     registry = "docker://us-west2-docker.pkg.dev/wasm-games-435303/diver/";
-    copyToRoot = [
-      ./diver_viz/build     # final built static html for client
-      ./data                # static pmtiles data for martin to serve
-      ./martin              # config for martin
-    ];
   };
 
   scripts.build_and_deploy.exec = ''
     # build wasm app
     cd diver_viz
-    trunk build --dist build
+    trunk build --dist build --release true --minify true
     cd ..
     # compile container and send to registry
     devenv container --profile prod copy processes
+    # clear wasm build folder (can't gitignore it because then it wont get picked up by nix smh)
+    cd diver_viz
+    rm -rf build
+    cd ..
   '';
 
   profiles.prod.module = { config, ... }: {
@@ -149,5 +148,24 @@
       tui.enable = false;
     };
     starship.enable = false;
+  };
+
+  profiles.dev.module = { config, ... }: {
+    processes = {
+      client-dev = {
+        cwd = "./diver_viz";
+        # use trunk to build and serve the wasm version of the client
+        # runs on port 1111 (see `diver_viz/Trunk.toml`)
+        exec = "trunk serve";
+      };
+      martin = {
+        # run martin with default settings pointed at test Denver pmtiles data
+        # runs on port 2222 (see `martin-config.yaml`)
+        exec = ''
+          martin --config martin/config.yaml
+        '';
+    };
+  };
+    
   };
 }

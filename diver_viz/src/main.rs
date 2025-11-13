@@ -1,11 +1,4 @@
-use bevy::{
-    camera::Exposure,
-    core_pipeline::tonemapping::Tonemapping,
-    light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder, light_consts::lux},
-    pbr::{Atmosphere, AtmosphereSettings},
-    post_process::bloom::Bloom,
-    prelude::*,
-};
+use bevy::prelude::*;
 use bevy_http_client::prelude::*;
 use csgrs::traits::CSG;
 use geozero::GeomProcessor;
@@ -18,6 +11,7 @@ const MARTIN_MVT_ENDPOINT: &str = "/tiles/denver_blocks_all_zoom_15_up";
 struct Building {
     geometry: Vec<Vec<Vec2>>,
     height: Option<f64>,
+    color: Option<Color>,
 }
 
 #[derive(Debug, Clone)]
@@ -81,16 +75,6 @@ fn spawn_player_camera(mut commands: Commands) {
             },
             Vec3::Y,
         ),
-        Atmosphere::EARTH,
-        AtmosphereSettings {
-            aerial_view_lut_max_distance: 3.2e5,
-            scene_units_to_m: 1e+4,
-            ..Default::default()
-        },
-        Exposure::SUNLIGHT,
-        Tonemapping::AcesFitted,
-        Bloom::NATURAL,
-        AtmosphereEnvironmentMapLight::default(),
     ));
 }
 
@@ -190,11 +174,28 @@ fn on_tile_response(
                 // Should read the tags and do some different stuff here for diff types
                 info!("Processing landuse layer...");
                 for feature in &layer.features {
+                    let kind: String =
+                        extract_tag_value_as_string(&feature.tags, layer, "kind".to_string())
+                            .unwrap_or("other".to_string());
+                    // switch up the height based on the 'kind' of landuse polygon
+                    let height = match kind.as_str() {
+                        "other" => 0.05,
+                        "grass" => 0.08,
+                        "pedestrian" => 0.1,
+                        _ => 0.02,
+                    };
+                    let color = match kind.as_str() {
+                        "other" => Color::srgb(0.9, 0.58, 0.43),
+                        "grass" => Color::srgb(0.25, 0.58, 0.43),
+                        "pedestrian" => Color::srgb(0.62, 0.67, 0.60),
+                        _ => Color::srgb(0.85, 0.04, 0.30),
+                    };
                     let mut processor = BuildingProcessor::new(TILE_COORD_X, TILE_COORD_Y);
                     if geozero::mvt::process_geom(feature, &mut processor).is_ok() {
                         if let Some(mut building) = processor.building {
                             // add hardcoded height for now
-                            building.height = Some(0.1);
+                            building.height = Some(height);
+                            building.color = Some(color);
                             landuse.push(building);
                         }
                     }
@@ -298,13 +299,6 @@ fn on_tile_response(
             ..default()
         });
 
-        let landuse_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.4, 0.54, 0.75),
-            metallic: 0.0,
-            perceptual_roughness: 1.0,
-            ..default()
-        });
-
         let road_material = materials.add(StandardMaterial {
             base_color: Color::srgb(0.98, 0.37, 0.43),
             metallic: 1.0,
@@ -326,6 +320,12 @@ fn on_tile_response(
         // Spawn landuse meshes
         for landuse_poly in &landuse {
             if let Some(mesh) = create_building_mesh(landuse_poly) {
+                let landuse_material = materials.add(StandardMaterial {
+                    base_color: landuse_poly.color.unwrap(),
+                    metallic: 0.0,
+                    perceptual_roughness: 1.0,
+                    ..default()
+                });
                 commands.spawn((
                     Mesh3d(meshes.add(mesh)),
                     MeshMaterial3d(landuse_material.clone()),
@@ -353,28 +353,14 @@ fn on_tile_response(
             ));
         }
 
-        // Configure a properly scaled cascade shadow map for this scene (defaults are too large, mesh units are in km)
-        let cascade_shadow_config = CascadeShadowConfigBuilder {
-            first_cascade_far_bound: 0.3,
-            maximum_distance: 3.0,
-            ..default()
-        }
-        .build();
-
         // Light
         commands.spawn((
             DirectionalLight {
                 shadows_enabled: true,
-                // lux::RAW_SUNLIGHT is recommended for use with this feature, since
-                // other values approximate sunlight *post-scattering* in various
-                // conditions. RAW_SUNLIGHT in comparison is the illuminance of the
-                // sun unfiltered by the atmosphere, so it is the proper input for
-                // sunlight to be filtered by the atmosphere.
-                illuminance: lux::RAW_SUNLIGHT,
+                illuminance: 12000.0,
                 ..default()
             },
             Transform::from_xyz(1.0, -0.4, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
-            cascade_shadow_config,
         ));
     }
 }
@@ -415,6 +401,28 @@ fn extract_tag_value_as_f64(tags: &Vec<u32>, layer: &Layer, input_key: String) -
     output
 }
 
+fn extract_tag_value_as_string(
+    tags: &Vec<u32>,
+    layer: &Layer,
+    input_key: String,
+) -> Option<String> {
+    let mut output = None;
+    for tag_pair in tags.chunks(2) {
+        if tag_pair.len() != 2 {
+            continue; // malformed
+        }
+        let key_idx = tag_pair[0] as usize;
+        let val_idx = tag_pair[1] as usize;
+
+        if let (Some(key), Some(val)) = (layer.keys.get(key_idx), layer.values.get(val_idx)) {
+            if *key == input_key {
+                output = val.string_value.clone()
+            }
+        }
+    }
+    output
+}
+
 // --- Building mesh ---
 fn create_building_mesh(building: &Building) -> Option<Mesh> {
     let outer_ring = building.geometry.first()?;
@@ -449,6 +457,7 @@ impl BuildingProcessor {
             tile_y,
             building: Some(Building {
                 geometry: Vec::new(),
+                color: None,
                 height: None,
             }),
             current_ring: Vec::new(),
