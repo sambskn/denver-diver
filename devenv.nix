@@ -66,7 +66,7 @@
 
   processes = {
     client-web = {
-      cwd = "./diver_viz/dist";
+      cwd = "./diver_viz/build";
       # serve static content for client
       exec = "http-server -p ${config.env.VIZ_PORT}";
     };
@@ -125,6 +125,7 @@
 
   containers.processes = {
     name = "devenv-denver-diver";
+    version= "0.1.0";
     registry = "docker://us-west2-docker.pkg.dev/wasm-games-435303/diver/";
     copyToRoot = [
       ./diver_viz/build     # final built static html for client
