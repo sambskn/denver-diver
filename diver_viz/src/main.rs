@@ -79,6 +79,11 @@ fn spawn_player_camera(mut commands: Commands) {
             -0.04455679,
             0.8613791,
         )),
+        DistanceFog {
+            color: Color::srgb(0.50, 0.44, 0.63),
+            falloff: FogFalloff::ExponentialSquared { density: 0.01 },
+            ..default()
+        },
     ));
 }
 
@@ -136,7 +141,7 @@ fn camera_update(
             } * SPEED
                 * timer.delta_secs();
             let offset = move_vec.x * cam.local_x() + move_vec.y * -1.0 * cam.local_z();
-            if gamepad.left_stick().length() > 0.01 {
+            if gamepad.left_stick().length() > 0.1 {
                 cam.translation += offset;
             }
 
@@ -401,7 +406,7 @@ fn on_tile_response(
         commands.spawn((
             DirectionalLight {
                 shadows_enabled: true,
-                illuminance: 12000.0,
+                illuminance: 50000.0,
                 ..default()
             },
             Transform::from_xyz(1.0, -0.4, 0.0).with_rotation(Quat::from_xyzw(
