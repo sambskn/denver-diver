@@ -5,7 +5,8 @@ use geozero::GeomProcessor;
 use geozero::mvt::tile::Layer;
 use geozero::mvt::{Message, Tile};
 
-const MARTIN_MVT_ENDPOINT: &str = "/tiles/denver_blocks_all_zoom_15_up";
+const MARTIN_MVT_ENDPOINT: &str =
+    "https://denver.roboape.online/tiles/denver_blocks_all_zoom_15_up";
 
 #[derive(Debug, Clone)]
 struct Building {
@@ -60,6 +61,10 @@ fn dynamic_scene(
             if gamepad.pressed(GamepadButton::LeftTrigger) {
                 tf.rotate_x(time.delta_secs() * std::f32::consts::PI / 10.0);
             }
+            if gamepad.just_pressed(GamepadButton::South) {
+                // print out current directional light rotations
+                info!("light tf (rotation) {:?}", tf.rotation);
+            }
         }
     }
 }
@@ -67,14 +72,13 @@ fn dynamic_scene(
 fn spawn_player_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d { ..default() },
-        Transform::from_xyz(0.0, 1.0, 0.0).looking_at(
-            Vec3 {
-                x: 1.0,
-                y: 1.0,
-                z: 0.0,
-            },
-            Vec3::Y,
-        ),
+        // Picked a value that looked nice looking at the capitol
+        Transform::from_xyz(58.50679, 4.5122952, 78.189224).with_rotation(Quat::from_xyzw(
+            0.07673687,
+            0.50015175,
+            -0.04455679,
+            0.8613791,
+        )),
     ));
 }
 
@@ -107,6 +111,11 @@ fn camera_update(
             if right_stick.length() > 0.1 {
                 cam.rotate_y(-1.0 * right_stick.x * timer.delta_secs());
                 cam.rotate_local_x(right_stick.y * timer.delta_secs());
+            }
+
+            if gamepad.just_pressed(GamepadButton::South) {
+                // print out current camera tf
+                info!("camera tf {:?}", cam);
             }
         }
     }
@@ -360,7 +369,12 @@ fn on_tile_response(
                 illuminance: 12000.0,
                 ..default()
             },
-            Transform::from_xyz(1.0, -0.4, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+            Transform::from_xyz(1.0, -0.4, 0.0).with_rotation(Quat::from_xyzw(
+                -0.6469852,
+                0.02463232,
+                -0.70667696,
+                0.285324,
+            )),
         ));
     }
 }
