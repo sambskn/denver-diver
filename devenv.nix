@@ -125,21 +125,25 @@
 
   containers.processes = {
     name = "devenv-denver-diver";
-    version= "0.1.5"; # bump on changes plz
+    version= "0.1.6"; # bump on changes plz
     registry = "docker://us-west2-docker.pkg.dev/wasm-games-435303/diver/";
   };
 
   scripts.build_and_deploy.exec = ''
     # build wasm app
+    echo 'starting wasm app build...'
     cd diver_viz
     trunk build --dist build --release true --minify true
     cd ..
     # compile container and send to registry
+    echo 'kicking off container build/push to registry...'
     devenv container --profile prod copy processes
     # clear wasm build folder (can't gitignore it because then it wont get picked up by nix smh)
+    echo 'clearing build artifacts...'
     cd diver_viz
     rm -rf build
     cd ..
+    echo '🌝 Done! Go click buttons on the internet to deploy that new container!'
   '';
 
   profiles.prod.module = { config, ... }: {
