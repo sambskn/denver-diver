@@ -35,7 +35,7 @@ fn main() {
         )
         .add_plugins(HttpClientPlugin)
         .insert_resource(ClearColor(Color::srgb(0.82, 0.73, 0.86)))
-        .add_systems(Startup, (spawn_player_camera, request_tiles))
+        .add_systems(Startup, (spawn_player_camera, spawn_ui_text, request_tiles))
         .add_systems(
             Update,
             (
@@ -79,6 +79,41 @@ fn spawn_player_camera(mut commands: Commands) {
             -0.04455679,
             0.8613791,
         )),
+    ));
+}
+
+fn spawn_ui_text(mut commands: Commands) {
+    commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Column,
+            position_type: PositionType::Absolute,
+            row_gap: px(6),
+            left: px(12),
+            top: px(12),
+            ..default()
+        },
+        children![
+            Text("left/right stick to move".to_string()),
+            Text("bumpers to adjust lights".to_string()),
+        ],
+    ));
+
+    commands.spawn((
+        Node {
+            flex_direction: FlexDirection::Column,
+            position_type: PositionType::Absolute,
+            row_gap: px(6),
+            right: px(12),
+            bottom: px(12),
+            ..default()
+        },
+        children![(
+            Text("map data from OpenStreetMap".to_string()),
+            TextFont {
+                font_size: 12.0,
+                ..Default::default()
+            },
+        )],
     ));
 }
 
