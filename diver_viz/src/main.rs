@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_http_client::prelude::*;
 use csgrs::traits::CSG;
+use geo::{Buffer, Coord, LineString, MultiPolygon, coord};
 use geozero::GeomProcessor;
 use geozero::mvt::tile::Layer;
 use geozero::mvt::{Message, Tile};
@@ -18,6 +19,8 @@ struct Building {
 #[derive(Debug, Clone)]
 struct Road {
     points: Vec<Vec2>,
+    width: f32,
+    kind: String,
 }
 
 fn main() {
@@ -55,12 +58,14 @@ fn dynamic_scene(
 ) {
     for mut tf in suns {
         for gamepad in gamepads {
+            // debug light adjustments
             if gamepad.pressed(GamepadButton::RightTrigger) {
                 tf.rotate_x(-time.delta_secs() * std::f32::consts::PI / 10.0);
             }
             if gamepad.pressed(GamepadButton::LeftTrigger) {
                 tf.rotate_x(time.delta_secs() * std::f32::consts::PI / 10.0);
             }
+            // debug print trigger
             if gamepad.just_pressed(GamepadButton::South) {
                 // print out current directional light rotations
                 info!("light tf (rotation) {:?}", tf.rotation);
@@ -133,26 +138,34 @@ fn camera_update(
 ) {
     for mut cam in camera_transform {
         for gamepad in gamepads {
+            // get unscaled stick inputs + dpad
+            let l_stick = gamepad.left_stick();
+            let r_stick = gamepad.right_stick();
+            let d_pad = gamepad.dpad();
+
             // movement
-            let move_vec = if gamepad.left_stick().length() > gamepad.dpad().length() {
-                gamepad.left_stick()
-            } else {
-                gamepad.dpad()
-            } * SPEED
-                * timer.delta_secs();
-            let offset = move_vec.x * cam.local_x() + move_vec.y * -1.0 * cam.local_z();
-            if gamepad.left_stick().length() > 0.1 {
+            if l_stick.length() > 0.1 || d_pad.length() > 0.0 {
+                let move_vec = if l_stick.length() > d_pad.length() {
+                    l_stick
+                } else {
+                    d_pad
+                } * SPEED
+                    * timer.delta_secs();
+
+                let offset = move_vec.x * cam.local_x() + move_vec.y * -1.0 * cam.local_z();
                 cam.translation += offset;
             }
 
-            let mut right_stick = gamepad.right_stick();
-            right_stick.x *= CAM_SENSITIVITY_X;
-            right_stick.y *= CAM_SENSITIVITY_Y;
-            if right_stick.length() > 0.1 {
-                cam.rotate_y(-1.0 * right_stick.x * timer.delta_secs());
-                cam.rotate_local_x(right_stick.y * timer.delta_secs());
+            // camera
+            if r_stick.length() > 0.1 {
+                let mut cam_adjust = r_stick;
+                cam_adjust.x *= CAM_SENSITIVITY_X;
+                cam_adjust.y *= CAM_SENSITIVITY_Y;
+                cam.rotate_y(-1.0 * cam_adjust.x * timer.delta_secs());
+                cam.rotate_local_x(cam_adjust.y * timer.delta_secs());
             }
 
+            // debug prints
             if gamepad.just_pressed(GamepadButton::South) {
                 // print out current camera tf
                 info!("camera tf {:?}", cam);
@@ -213,7 +226,16 @@ fn on_tile_response(
             } else if layer.name == "roads" {
                 info!("Processing roads layer...");
                 for feature in &layer.features {
-                    let mut processor = RoadProcessor::new(TILE_COORD_X, TILE_COORD_Y);
+                    let kind: String =
+                        extract_tag_value_as_string(&feature.tags, layer, "kind".to_string())
+                            .unwrap_or("other".to_string());
+                    let width = match kind.as_str() {
+                        "major_road" => 4.0,
+                        "minor_road" => 0.125,
+                        "path" => 0.06,
+                        _ => 0.02,
+                    };
+                    let mut processor = RoadProcessor::new(TILE_COORD_X, TILE_COORD_Y, width, kind);
                     if geozero::mvt::process_geom(feature, &mut processor).is_ok() {
                         roads.extend(processor.roads);
                     }
@@ -348,8 +370,20 @@ fn on_tile_response(
             ..default()
         });
 
-        let road_material = materials.add(StandardMaterial {
+        let major_road_material = materials.add(StandardMaterial {
             base_color: Color::srgb(0.98, 0.37, 0.43),
+            metallic: 1.0,
+            perceptual_roughness: 0.0,
+            ..default()
+        });
+        let minor_road_material = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.88, 0.41, 0.63),
+            metallic: 1.0,
+            perceptual_roughness: 0.0,
+            ..default()
+        });
+        let other_road_material = materials.add(StandardMaterial {
+            base_color: Color::srgb(0.78, 0.37, 0.93),
             metallic: 1.0,
             perceptual_roughness: 0.0,
             ..default()
@@ -388,18 +422,42 @@ fn on_tile_response(
             if road.points.len() < 2 {
                 continue;
             }
-
-            let road_vertices: Vec<Vec3> = road
+            let coords: Vec<Coord<f32>> = road
                 .points
                 .iter()
-                .map(|point| Vec3::new(point.x, 0.0, point.y))
+                .map(|v2| {
+                    coord! { x: v2.x, y: v2.y }
+                })
                 .collect();
+            // make road verts a geo linestring
+            let road_vertices_2d = LineString::new(coords);
+            // buffer it based on width
+            let buff_road: MultiPolygon<f32> = road_vertices_2d.buffer(road.width / 2.0);
 
-            commands.spawn((
-                Mesh3d(meshes.add(Polyline3d::new(road_vertices))),
-                MeshMaterial3d(road_material.clone()),
-                Transform::from_xyz(0.0, 0.0, 0.0),
-            ));
+            let road_height = 0.15;
+            // take the resulting polygons and make em into extruded meshes
+            for polygon in buff_road {
+                let points: Vec<[f64; 2]> = polygon
+                    .exterior()
+                    .points()
+                    .map(|p| [p.0.x as f64, p.0.y as f64])
+                    .collect();
+                let sketch: csgrs::sketch::Sketch<()> =
+                    csgrs::sketch::Sketch::polygon(&points, None);
+                let extruded = sketch.extrude(road_height);
+                let rotated = extruded.rotate(-90.0, 0.0, 0.0);
+                let mesh = rotated.to_bevy_mesh();
+
+                commands.spawn((
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(match road.kind.as_str() {
+                        "major_road" => major_road_material.clone(),
+                        "minor_road" => minor_road_material.clone(),
+                        _ => other_road_material.clone(),
+                    }),
+                    Transform::from_xyz(0.0, 0.0, 0.0),
+                ));
+            }
         }
 
         // Light
@@ -560,15 +618,19 @@ struct RoadProcessor {
     tile_y: u32,
     roads: Vec<Road>,
     current_line: Vec<Vec2>,
+    width: f32,
+    kind: String,
 }
 
 impl RoadProcessor {
-    fn new(tile_x: u32, tile_y: u32) -> Self {
+    fn new(tile_x: u32, tile_y: u32, width: f32, kind: String) -> Self {
         Self {
             tile_x,
             tile_y,
             roads: Vec::new(),
             current_line: Vec::new(),
+            width,
+            kind,
         }
     }
 
@@ -591,6 +653,8 @@ impl GeomProcessor for RoadProcessor {
         if !self.current_line.is_empty() {
             self.roads.push(Road {
                 points: self.current_line.clone(),
+                width: self.width,
+                kind: self.kind.clone(),
             });
             self.current_line.clear();
         }
