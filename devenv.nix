@@ -1,6 +1,7 @@
 { pkgs, lib, config, inputs, ... }:
 
 {
+  env.VERSION_STR = "0.1.7";
   env.PORT = "8080"; # for output
   env.VIZ_PORT = "1111";
   env.TILES_PORT = "2222";
@@ -125,7 +126,7 @@
 
   containers.processes = {
     name = "devenv-denver-diver";
-    version= "0.1.6"; # bump on changes plz
+    version= config.env.VERSION_STR; # bump on changes plz
     registry = "docker://us-west2-docker.pkg.dev/wasm-games-435303/diver/";
   };
 

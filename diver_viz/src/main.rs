@@ -1,4 +1,8 @@
-use bevy::prelude::*;
+use bevy::{
+    input::mouse::MouseMotion,
+    prelude::*,
+    window::{CursorGrabMode, CursorOptions},
+};
 use bevy_http_client::prelude::*;
 use csgrs::traits::CSG;
 use geo::{Buffer, Coord, LineString, MultiPolygon, coord};
@@ -45,24 +49,31 @@ fn main() {
                 camera_update,
                 on_tile_response,
                 on_tile_error,
-                dynamic_scene,
+                adjust_light,
+                mouse_track,
+                grab_mouse,
             ),
         )
         .run();
 }
 
-fn dynamic_scene(
+fn adjust_light(
     suns: Query<&mut Transform, With<DirectionalLight>>,
     gamepads: Query<&Gamepad>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
 ) {
     for mut tf in suns {
         for gamepad in gamepads {
             // debug light adjustments
-            if gamepad.pressed(GamepadButton::RightTrigger) {
+            if gamepad.pressed(GamepadButton::RightTrigger)
+                || keyboard_input.pressed(KeyCode::BracketRight)
+            {
                 tf.rotate_x(-time.delta_secs() * std::f32::consts::PI / 10.0);
             }
-            if gamepad.pressed(GamepadButton::LeftTrigger) {
+            if gamepad.pressed(GamepadButton::LeftTrigger)
+                || keyboard_input.pressed(KeyCode::BracketLeft)
+            {
                 tf.rotate_x(time.delta_secs() * std::f32::consts::PI / 10.0);
             }
             // debug print trigger
@@ -103,8 +114,8 @@ fn spawn_ui_text(mut commands: Commands) {
             ..default()
         },
         children![
-            Text("left/right stick to move".to_string()),
-            Text("bumpers to adjust lights".to_string()),
+            Text("sticks (or WASD + mouse) to move & look".to_string()),
+            Text("bumpers/brackets to adjust lights".to_string()),
         ],
     ));
 
@@ -145,15 +156,27 @@ fn camera_update(
             let d_pad = gamepad.dpad();
             // also keyboard i guess *eyeroll*
             let kb_wasd = Vec2::new(
-                if keyboard_input.pressed(KeyCode::KeyD) { 1.0 } else if keyboard_input.pressed(KeyCode::KeyA) { -1.0 } else {0.0},
-                if keyboard_input.pressed(KeyCode::KeyW) { 1.0 } else if keyboard_input.pressed(KeyCode::KeyS) { -1.0 } else {0.0},
+                if keyboard_input.pressed(KeyCode::KeyD) {
+                    1.0
+                } else if keyboard_input.pressed(KeyCode::KeyA) {
+                    -1.0
+                } else {
+                    0.0
+                },
+                if keyboard_input.pressed(KeyCode::KeyW) {
+                    1.0
+                } else if keyboard_input.pressed(KeyCode::KeyS) {
+                    -1.0
+                } else {
+                    0.0
+                },
             );
 
             // movement
-            let combined_stick_input = (l_stick + d_pad + kb_wasd).normalize();
-            if combined_stick_input.length() > 0.1 {
-                let move_vec = combined_stick_input * SPEED
-                    * timer.delta_secs();
+            let combined_stick_magnitude = l_stick.length() + d_pad.length() + kb_wasd.length();
+            if combined_stick_magnitude > 0.1 {
+                let combined_movement_intent = (l_stick + d_pad + kb_wasd).normalize();
+                let move_vec = combined_movement_intent * SPEED * timer.delta_secs();
 
                 let offset = move_vec.x * cam.local_x() + move_vec.y * -1.0 * cam.local_z();
                 cam.translation += offset;
@@ -174,6 +197,48 @@ fn camera_update(
                 info!("camera tf {:?}", cam);
             }
         }
+    }
+}
+
+const MOUSE_SENSITIVITY_X: f32 = 0.2;
+const MOUSE_SENSITIVITY_Y: f32 = 0.1;
+
+// similar to above cam control but mouse event focused
+fn mouse_track(
+    camera_transform: Query<&mut Transform, With<Camera3d>>,
+    cursor_options: Single<&CursorOptions>,
+    timer: Res<Time>,
+    mut mouse_motion_reader: MessageReader<MouseMotion>,
+) {
+    // only do it in grab mode
+    if cursor_options.grab_mode == CursorGrabMode::Locked {
+        for mut cam in camera_transform {
+            for mouse_motion in mouse_motion_reader.read() {
+                if mouse_motion.delta.length() > 0.01 {
+                    let cam_adjust = Vec2::new(
+                        mouse_motion.delta.x * MOUSE_SENSITIVITY_X,
+                        mouse_motion.delta.y * MOUSE_SENSITIVITY_Y * -1.0,
+                    );
+                    cam.rotate_y(-1.0 * cam_adjust.x * timer.delta_secs());
+                    cam.rotate_local_x(cam_adjust.y * timer.delta_secs());
+                }
+            }
+        }
+    }
+}
+
+// Toggles mouse grab on click
+fn grab_mouse(
+    mut cursor_options: Single<&mut CursorOptions>,
+    mouse: Res<ButtonInput<MouseButton>>,
+) {
+    let click = mouse.just_released(MouseButton::Left);
+    if click && cursor_options.grab_mode == CursorGrabMode::None {
+        cursor_options.visible = false;
+        cursor_options.grab_mode = CursorGrabMode::Locked;
+    } else if click {
+        cursor_options.visible = true;
+        cursor_options.grab_mode = CursorGrabMode::None;
     }
 }
 
