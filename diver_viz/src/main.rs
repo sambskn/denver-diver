@@ -134,6 +134,7 @@ const SPEED: f32 = 12.0;
 fn camera_update(
     camera_transform: Query<&mut Transform, With<Camera3d>>,
     gamepads: Query<&Gamepad>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     timer: Res<Time>,
 ) {
     for mut cam in camera_transform {
@@ -142,14 +143,16 @@ fn camera_update(
             let l_stick = gamepad.left_stick();
             let r_stick = gamepad.right_stick();
             let d_pad = gamepad.dpad();
+            // also keyboard i guess *eyeroll*
+            let kb_wasd = Vec2::new(
+                if keyboard_input.pressed(KeyCode::KeyD) { 1.0 } else if keyboard_input.pressed(KeyCode::KeyA) { -1.0 } else {0.0},
+                if keyboard_input.pressed(KeyCode::KeyW) { 1.0 } else if keyboard_input.pressed(KeyCode::KeyS) { -1.0 } else {0.0},
+            );
 
             // movement
-            if l_stick.length() > 0.1 || d_pad.length() > 0.0 {
-                let move_vec = if l_stick.length() > d_pad.length() {
-                    l_stick
-                } else {
-                    d_pad
-                } * SPEED
+            let combined_stick_input = (l_stick + d_pad + kb_wasd).normalize();
+            if combined_stick_input.length() > 0.1 {
+                let move_vec = combined_stick_input * SPEED
                     * timer.delta_secs();
 
                 let offset = move_vec.x * cam.local_x() + move_vec.y * -1.0 * cam.local_z();
