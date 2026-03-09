@@ -572,10 +572,6 @@ fn extract_tag_value_as_string(
     output
 }
 
-// ---------------------------------------------------------------------------
-// Mesh generation — replaces csgrs extrude + rotate + to_bevy_mesh
-// ---------------------------------------------------------------------------
-
 /// Triangulate a simple polygon (no holes) using the ear-clipping algorithm.
 /// Input: 2D vertices in order (CW or CCW).
 /// Returns: indices into the input slice, as triangles.
@@ -585,11 +581,8 @@ fn triangulate_polygon(verts: &[Vec2]) -> Vec<usize> {
         return vec![];
     }
 
-    // Work with an index list we can shrink as ears are clipped.
-    let mut indices: Vec<usize> = (0..n).collect();
-    let mut result = Vec::new();
-
-    // Signed area — tells us winding order so we can orient consistently.
+    // Detect winding and work on a CCW copy of the indices.
+    // This makes the clipper self-contained regardless of what the caller passes.
     let signed_area: f32 = {
         let mut s = 0.0_f32;
         for i in 0..n {
@@ -598,20 +591,20 @@ fn triangulate_polygon(verts: &[Vec2]) -> Vec<usize> {
         }
         s * 0.5
     };
-    // We want CCW winding for the "is point inside triangle" test below.
-    // If area is negative (CW), reverse the index list.
-    if signed_area < 0.0 {
-        indices.reverse();
-    }
+    // If CW, work with a reversed index order so the clipper always sees CCW.
+    let indices: Vec<usize> = if signed_area < 0.0 {
+        (0..n).rev().collect()
+    } else {
+        (0..n).collect()
+    };
 
-    // Returns true if point P is strictly inside triangle ABC (all CCW).
+    let mut result = Vec::new();
+
     let point_in_triangle = |a: Vec2, b: Vec2, c: Vec2, p: Vec2| -> bool {
         let cross = |o: Vec2, u: Vec2, v: Vec2| (u - o).perp_dot(v - o);
         cross(a, b, p) >= 0.0 && cross(b, c, p) >= 0.0 && cross(c, a, p) >= 0.0
     };
 
-    // Returns true if the vertex at position `i` in the current index list
-    // is a convex (ear) vertex.
     let is_ear = |indices: &[usize], i: usize| -> bool {
         let len = indices.len();
         let prev = indices[(i + len - 1) % len];
@@ -620,12 +613,10 @@ fn triangulate_polygon(verts: &[Vec2]) -> Vec<usize> {
         let a = verts[prev];
         let b = verts[curr];
         let c = verts[next];
-        // Must be convex (left turn in CCW polygon).
         if (b - a).perp_dot(c - a) <= 0.0 {
             return false;
         }
-        // No other vertex may lie inside this triangle.
-        for (_j, &idx) in indices.iter().enumerate() {
+        for &idx in indices.iter() {
             if idx == prev || idx == curr || idx == next {
                 continue;
             }
@@ -636,13 +627,11 @@ fn triangulate_polygon(verts: &[Vec2]) -> Vec<usize> {
         true
     };
 
-    // Ear-clip loop.
-    let mut remaining = indices.clone();
+    let mut remaining = indices;
     let mut guard = 0;
     while remaining.len() > 3 {
         guard += 1;
         if guard > remaining.len() * remaining.len() + 10 {
-            // Degenerate polygon — bail out with what we have.
             break;
         }
         let len = remaining.len();
@@ -662,7 +651,7 @@ fn triangulate_polygon(verts: &[Vec2]) -> Vec<usize> {
             }
         }
         if !clipped {
-            break; // Give up on degenerate input.
+            break;
         }
     }
     if remaining.len() == 3 {
@@ -709,71 +698,76 @@ pub fn extrude_polygon_mesh(ring: &[Vec2], height: f32) -> Option<Mesh> {
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut tri_indices: Vec<u32> = Vec::new();
 
-    // -----------------------------------------------------------------------
-    // Top cap  (Y = height, normal = +Y)
-    // -----------------------------------------------------------------------
+    // Top cap — triangulate then reverse winding to face +Y
     let top_base = positions.len() as u32;
     for v in &ring {
         positions.push([v.x, height, v.y]);
         normals.push([0.0, 1.0, 0.0]);
     }
-    // Ear-clip the top face. csgrs rotated after extruding so the "top" of
-    // the prism (originally the cap in the +Z direction) ends up at +Y.
-    let top_tris = triangulate_polygon(&ring);
-    for idx in top_tris {
-        tri_indices.push(top_base + idx as u32);
+    for chunk in triangulate_polygon(&ring).chunks(3) {
+        tri_indices.push(top_base + chunk[0] as u32);
+        tri_indices.push(top_base + chunk[2] as u32);
+        tri_indices.push(top_base + chunk[1] as u32);
     }
 
-    // -----------------------------------------------------------------------
-    // Bottom cap  (Y = 0, normal = -Y, winding reversed for back-face)
-    // -----------------------------------------------------------------------
+    // Bottom cap — triangulate then forward winding to face -Y
     let bot_base = positions.len() as u32;
     for v in &ring {
         positions.push([v.x, 0.0, v.y]);
         normals.push([0.0, -1.0, 0.0]);
     }
-    let bot_tris = triangulate_polygon(&ring);
-    // Reverse winding so the normal faces downward (outward).
-    for chunk in bot_tris.chunks(3) {
+    for chunk in triangulate_polygon(&ring).chunks(3) {
         tri_indices.push(bot_base + chunk[0] as u32);
-        tri_indices.push(bot_base + chunk[2] as u32); // swapped
         tri_indices.push(bot_base + chunk[1] as u32);
+        tri_indices.push(bot_base + chunk[2] as u32);
     }
-
     // -----------------------------------------------------------------------
-    // Side walls — one quad (two triangles) per edge
+    // Side walls — one quad (two triangles) per edge.
+    // For a CCW ring (viewed from above), walking edge p0→p1 means the outside
+    // is to the right, so the outward normal is (edge.y, -edge.x) rotated into
+    // XZ: (edge.y, 0, -edge.x).  Wait — let's be precise:
+    //   edge in XZ = (p1.x - p0.x, p1.y - p0.y)  [where .y here is world Z]
+    //   right-hand outward perp (XZ plane, CCW ring) = (edge_z, -edge_x)
+    //                                                 = (p1.y-p0.y, -(p1.x-p0.x))
+    // That maps to world normal = [edge_z, 0, -edge_x].
     // -----------------------------------------------------------------------
     for i in 0..n {
         let j = (i + 1) % n;
-        let p0 = ring[i]; // bottom-left  of this wall quad
-        let p1 = ring[j]; // bottom-right
+        let p0 = ring[i];
+        let p1 = ring[j];
 
-        // Outward normal: perpendicular to the edge in the XZ plane.
-        let edge = Vec2::new(p1.x - p0.x, p1.y - p0.y);
-        let normal_xz = Vec2::new(edge.y, -edge.x).normalize_or_zero();
-        let norm = [normal_xz.x, 0.0, normal_xz.y];
+        let dx = p1.x - p0.x;
+        let dz = p1.y - p0.y; // ring.y lives on world Z
+        let len = (dx * dx + dz * dz).sqrt();
+        let (nx, nz) = if len > 1e-9 {
+            (dz / len, -dx / len)
+        } else {
+            (0.0, 0.0)
+        };
+        let norm = [nx, 0.0, nz];
 
         let wall_base = positions.len() as u32;
 
-        // 4 vertices: bottom-left, bottom-right, top-right, top-left
-        positions.push([p0.x, 0.0, p0.y]); // 0 – bottom-left
-        positions.push([p1.x, 0.0, p1.y]); // 1 – bottom-right
-        positions.push([p1.x, height, p1.y]); // 2 – top-right
-        positions.push([p0.x, height, p0.y]); // 3 – top-left
+        // Vertices: bot-p0, bot-p1, top-p1, top-p0
+        positions.push([p0.x, 0.0, p0.y]); // 0
+        positions.push([p1.x, 0.0, p1.y]); // 1
+        positions.push([p1.x, height, p1.y]); // 2
+        positions.push([p0.x, height, p0.y]); // 3
 
         for _ in 0..4 {
             normals.push(norm);
         }
 
-        // Two triangles (CCW when viewed from outside):
-        //   0, 1, 2  and  0, 2, 3
+        // CCW winding when viewed from outside (i.e. from the normal direction):
+        //   triangle 0: 0, 2, 1
+        //   triangle 1: 0, 3, 2
         tri_indices.push(wall_base);
-        tri_indices.push(wall_base + 1);
         tri_indices.push(wall_base + 2);
+        tri_indices.push(wall_base + 1);
 
         tri_indices.push(wall_base);
-        tri_indices.push(wall_base + 2);
         tri_indices.push(wall_base + 3);
+        tri_indices.push(wall_base + 2);
     }
 
     let mut mesh = Mesh::new(
